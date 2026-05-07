@@ -284,29 +284,175 @@ async function downloadAudio(url, outputDir, progressCallback) {
 }
 
 async function downloadImages(url, outputDir, progressCallback) {
-  let galleryErr;
+  const isPinterest = /pinterest\.com|pin\.it/i.test(url);
+  const isInstagram = /instagram\.com/i.test(url);
+
+  // Pinterest: video → thumbnail (image pins uchun)
+  if (isPinterest) {
+    try {
+      return await downloadPinterestMedia(url, outputDir, progressCallback);
+    } catch (e) {
+      logger.debug('Pinterest video failed, trying thumbnail:', e.message);
+    }
+    try {
+      return await downloadThumbnailOnly(url, outputDir);
+    } catch (thumbErr) {
+      logger.debug('Pinterest thumbnail failed:', thumbErr.message);
+      throw new NonRetryableError('Pinterest media yuklab bo\'lmadi. Boshqa havola yuboring.');
+    }
+  }
+
+  // Instagram carousel: yt-dlp bilan avval urinish
+  if (isInstagram) {
+    try {
+      return await downloadInstagramMedia(url, outputDir, progressCallback);
+    } catch (e) {
+      logger.debug('Instagram yt-dlp failed, trying gallery-dl:', e.message);
+    }
+    // gallery-dl bilan urinish
+    try {
+      return await downloadWithGalleryDl(url, outputDir, progressCallback);
+    } catch (e2) {
+      logger.debug('Instagram gallery-dl failed:', e2.message);
+      throw new NonRetryableError('Instagram media yuklab bo\'lmadi. Login talab qilinishi mumkin.');
+    }
+  }
+
+  // Boshqa platformalar: gallery-dl → yt-dlp → thumbnail
   try {
     return await downloadWithGalleryDl(url, outputDir, progressCallback);
-  } catch (e) {
-    galleryErr = e;
-    logger.debug('gallery-dl failed, trying yt-dlp:', e.message);
+  } catch (galleryErr) {
+    logger.debug('gallery-dl failed, trying yt-dlp:', galleryErr.message);
   }
 
-  let ytErr;
   try {
     return await downloadWithYtDlp(url, outputDir, progressCallback);
-  } catch (e) {
-    ytErr = e;
-    logger.debug('yt-dlp video failed, trying thumbnail extract:', e.message);
+  } catch (ytErr) {
+    logger.debug('yt-dlp failed, trying thumbnail:', ytErr.message);
   }
 
-  // Last resort: extract thumbnail image via yt-dlp (works for image-only pins)
   try {
     return await downloadThumbnailOnly(url, outputDir);
   } catch (thumbErr) {
-    logger.debug('thumbnail extract failed:', thumbErr.message);
-    throw new NonRetryableError(ytErr?.message || galleryErr?.message || 'Rasm yuklab bo\'lmadi');
+    throw new NonRetryableError('Media yuklab bo\'lmadi.');
   }
+}
+
+// Pinterest uchun alohida funksiya: video → rasm
+async function downloadPinterestMedia(url, outputDir, progressCallback) {
+  return new Promise((resolve, reject) => {
+    const outputTemplate = path.join(outputDir, '%(id)s.%(ext)s');
+    // Pinterest video/rasm uchun eng mos formatlar
+    const args = [
+      url,
+      '-f', 'bestvideo[ext=mp4]+bestaudio/best[ext=mp4]/best',
+      '--merge-output-format', 'mp4',
+      '--write-thumbnail',
+      '-o', outputTemplate,
+      '--no-playlist',
+      '--no-warnings',
+      '--newline',
+    ];
+
+    const ffmpegDir = path.dirname(FFMPEG_BIN);
+    if (fs.existsSync(FFMPEG_BIN)) args.push('--ffmpeg-location', ffmpegDir);
+    if (process.env.PROXY_URL) args.push('--proxy', process.env.PROXY_URL);
+    if (process.env.COOKIES_FILE && fs.existsSync(process.env.COOKIES_FILE)) {
+      args.push('--cookies', process.env.COOKIES_FILE);
+    }
+
+    const proc = spawn(YTDLP_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let filePath = null;
+    let stderr = '';
+
+    const timer = setTimeout(() => { proc.kill('SIGKILL'); }, 10 * 60 * 1000);
+
+    proc.stdout.on('data', (data) => {
+      const text = data.toString();
+      const pct = text.match(/(\d+\.?\d*)%/);
+      if (pct && progressCallback) progressCallback({ percent: parseFloat(pct[1]) });
+      const dest = text.match(/\[download\] Destination: (.+)/);
+      if (dest) filePath = dest[1].trim();
+      const merge = text.match(/\[Merger\] Merging formats into "(.+)"/);
+      if (merge) filePath = merge[1].trim();
+    });
+
+    proc.stderr.on('data', d => { stderr += d.toString(); });
+
+    proc.on('close', async (code) => {
+      clearTimeout(timer);
+      // Check files first — thumbnails may have been written even on failure
+      const allFiles = await getMediaFiles(outputDir);
+      if (allFiles.length > 0) {
+        const videoFiles = allFiles.filter(f => /\.(mp4|webm|mov|mkv)$/i.test(f));
+        if (videoFiles.length > 0) {
+          const stat = await fs.stat(videoFiles[0]);
+          return resolve({ type: 'video', filePath: videoFiles[0], size: stat.size });
+        }
+        return resolve({ type: 'images', files: allFiles, count: allFiles.length });
+      }
+      reject(new Error(parseYtDlpError(stderr) || 'Pinterest: media topilmadi'));
+    });
+
+    proc.on('error', () => reject(new Error('yt-dlp topilmadi')));
+  });
+}
+
+// Instagram carousel/reel uchun yt-dlp bilan yuklab olish
+async function downloadInstagramMedia(url, outputDir, progressCallback) {
+  return new Promise((resolve, reject) => {
+    const outputTemplate = path.join(outputDir, '%(autonumber)s_%(id)s.%(ext)s');
+    const args = [
+      url,
+      '-f', 'bestvideo[ext=mp4]+bestaudio/best[ext=mp4]/best',
+      '--merge-output-format', 'mp4',
+      '-o', outputTemplate,
+      '--no-playlist',
+      '--no-warnings',
+      '--newline',
+      '--yes-playlist',   // carousel uchun barcha rasmlar/videolarni yuklab olish
+    ];
+
+    const ffmpegDir = path.dirname(FFMPEG_BIN);
+    if (fs.existsSync(FFMPEG_BIN)) args.push('--ffmpeg-location', ffmpegDir);
+    if (process.env.PROXY_URL) args.push('--proxy', process.env.PROXY_URL);
+    if (process.env.COOKIES_FILE && fs.existsSync(process.env.COOKIES_FILE)) {
+      args.push('--cookies', process.env.COOKIES_FILE);
+    }
+
+    const proc = spawn(YTDLP_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stderr = '';
+
+    const timer = setTimeout(() => { proc.kill('SIGKILL'); }, 15 * 60 * 1000);
+
+    proc.stdout.on('data', (data) => {
+      const text = data.toString();
+      const pct = text.match(/(\d+\.?\d*)%/);
+      if (pct && progressCallback) progressCallback({ percent: parseFloat(pct[1]) });
+    });
+
+    proc.stderr.on('data', d => { stderr += d.toString(); });
+
+    proc.on('close', async (code) => {
+      clearTimeout(timer);
+      const allFiles = await getMediaFiles(outputDir);
+      if (allFiles.length === 0) {
+        return reject(new Error(parseYtDlpError(stderr) || 'Instagram: media topilmadi'));
+      }
+      logger.info(`Instagram: ${allFiles.length} fayl`);
+      const videoFiles = allFiles.filter(f => /\.(mp4|webm|mov|mkv)$/i.test(f));
+      if (videoFiles.length === 1 && allFiles.length === 1) {
+        const stat = await fs.stat(videoFiles[0]);
+        resolve({ type: 'video', filePath: videoFiles[0], size: stat.size });
+      } else if (videoFiles.length > 0 || allFiles.length > 0) {
+        resolve({ type: 'images', files: allFiles, count: allFiles.length });
+      } else {
+        reject(new Error('Instagram: media topilmadi'));
+      }
+    });
+
+    proc.on('error', () => reject(new Error('yt-dlp topilmadi')));
+  });
 }
 
 function downloadThumbnailOnly(url, outputDir) {
@@ -315,7 +461,6 @@ function downloadThumbnailOnly(url, outputDir) {
       url,
       '--write-thumbnail',
       '--skip-download',
-      '--convert-thumbnails', 'jpg',
       '-o', path.join(outputDir, '%(id)s'),
       '--no-playlist',
       '--no-warnings',

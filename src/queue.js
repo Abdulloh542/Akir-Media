@@ -7,6 +7,41 @@ const { trackDownload } = require('./database');
 const { detectPlatform } = require('./platforms');
 const { logger, buildProgressBar } = require('./utils');
 
+// Texnik xato xabarlarini qisqa, foydalanuvchiga tushunarli matnga aylantirish
+function toUserMessage(raw) {
+  if (!raw) return 'Qayta urinib ko\'ring.';
+  const s = raw.toString();
+
+  // Platformaga xos xabarlar
+  if (s.includes('No video formats found'))   return 'Video formatlar topilmadi. Rasm post bo\'lishi mumkin.';
+  if (s.includes('Private video'))            return 'Bu video xususiy (private).';
+  if (s.includes('Video unavailable'))        return 'Video mavjud emas yoki o\'chirilgan.';
+  if (s.includes('login required') || s.includes('Login required') || s.includes('Sign in'))
+                                              return 'Bu kontent uchun login talab qilinadi.';
+  if (s.includes('age-restricted'))           return 'Bu video yosh chekloviga ega.';
+  if (s.includes('copyright'))               return 'Mualliflik huquqi bilan himoyalangan.';
+  if (s.includes('not available in your country') || s.includes('geo'))
+                                              return 'Bu kontent sizning hududda mavjud emas.';
+  if (s.includes('rate limit') || s.includes('429')) return 'Juda ko\'p so\'rov. Biroz kuting.';
+  if (s.includes('network') || s.includes('connection')) return 'Tarmoq xatosi. Qayta urinib ko\'ring.';
+  if (s.includes('timeout'))                 return 'Yuklab olish juda uzoq davom etdi.';
+  if (s.includes('Pinterest'))               return 'Pinterest media yuklab bo\'lmadi. Boshqa havola yuboring.';
+  if (s.includes('Instagram'))               return 'Instagram media yuklab bo\'lmadi. Havola ochiq ekanligini tekshiring.';
+
+  // Barcha GitHub havolalari va texnik tafsilotlarni o'chirish
+  const cleaned = s
+    .replace(/;?\s*please report.*?github\.com[^\s]*/gi, '')
+    .replace(/https?:\/\/github\.com\S*/gi, '')
+    .replace(/Confirm you are on the latest version.*$/gi, '')
+    .replace(/\[\w+\]\s+[\w]+:/g, '')   // [Pinterest] 606...: ni o'chirish
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // 80 belgidan uzun bo'lsa qisqartirish
+  if (cleaned.length > 80) return 'Yuklab olishda xato yuz berdi. Havolani tekshirib qayta yuboring.';
+  return cleaned || 'Qayta urinib ko\'ring.';
+}
+
 let downloadQueue;
 
 function initQueue(bot) {
@@ -107,7 +142,10 @@ async function processDownload(bot, job) {
     // Show error to user only on last attempt or non-retryable
     const isFinalAttempt = err.nonRetryable || job.attemptsMade >= (job.opts.attempts || 2);
     if (isFinalAttempt) {
-      const errMsg = `❌ <b>Yuklab bo'lmadi:</b>\n${err?.message || String(err)}`;
+      // Qisqa va tushunarli xabar — texnik tafsilotlarsiz
+      const rawMsg = err?.message || String(err);
+      const userMsg = toUserMessage(rawMsg);
+      const errMsg = `❌ <b>Yuklab bo'lmadi</b>\n${userMsg}`;
       if (statusMsg) {
         await bot.editMessageText(errMsg, {
           chat_id: chatId, message_id: statusMsg.message_id, parse_mode: 'HTML',
