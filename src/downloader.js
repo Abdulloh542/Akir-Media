@@ -40,12 +40,6 @@ fs.ensureDirSync(DOWNLOAD_PATH);
 const YTDLP_BIN = process.env.YTDLP_PATH || 'yt-dlp';
 const FFMPEG_BIN = process.env.FFMPEG_PATH || 'ffmpeg';
 
-// Maksimal ruxsat etilgan fayl hajmi (MB) — .env dan o'qiladi
-const MAX_FILE_MB = parseInt(process.env.MAX_FILE_SIZE) || 2000;
-
-// Telegram bot API limiti: 50MB
-const TELEGRAM_LIMIT_MB = 50;
-
 function buildYtDlpArgs(url, outputTemplate, type, options = {}) {
   const args = [url];
 
@@ -94,29 +88,6 @@ function buildYtDlpArgs(url, outputTemplate, type, options = {}) {
   }
 
   return args;
-}
-
-// yt-dlp jarayonini ishga tushirish — timeout bilan
-function spawnWithTimeout(bin, args, timeoutMs) {
-  return new Promise((resolve) => {
-    const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let killed = false;
-
-    const timer = setTimeout(() => {
-      if (!killed) {
-        killed = true;
-        proc.kill('SIGKILL');
-        logger.warn(`yt-dlp jarayon timeout (${timeoutMs / 1000}s) — o'ldirildi`);
-      }
-    }, timeoutMs);
-
-    proc.on('close', (code) => {
-      clearTimeout(timer);
-      resolve({ proc, code, killed });
-    });
-
-    resolve({ proc, timer, killed: () => killed });
-  });
 }
 
 async function downloadVideo(url, outputDir, progressCallback) {
@@ -407,10 +378,9 @@ async function downloadInstagramMedia(url, outputDir, progressCallback) {
       '-f', 'bestvideo[ext=mp4]+bestaudio/best[ext=mp4]/best',
       '--merge-output-format', 'mp4',
       '-o', outputTemplate,
-      '--no-playlist',
+      '--yes-playlist',
       '--no-warnings',
       '--newline',
-      '--yes-playlist',   // carousel uchun barcha rasmlar/videolarni yuklab olish
     ];
 
     const ffmpegDir = path.dirname(FFMPEG_BIN);

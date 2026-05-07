@@ -30,7 +30,6 @@ async function sendVideo(bot, chatId, filePath) {
 
   let fileToSend = filePath;
   const stat = await fs.stat(filePath);
-  const sizeMB = stat.size / (1024 * 1024);
   logger.info(`Sending video: ${path.basename(filePath)} (${formatBytes(stat.size)})`);
 
   if (stat.size > TELEGRAM_LIMIT) {
@@ -49,14 +48,7 @@ async function sendVideo(bot, chatId, filePath) {
     // 30 daqiqadan uzun video uchun ogohlantiruv
     if (durationSec > 30 * 60) {
       await bot.sendMessage(chatId,
-        `⚠️ <b>Video juda uzun (${Math.round(durationSec / 60)} daqiqa)</b>\n\n` +
-        `Fayl hajmi: ${formatBytes(stat.size)}\n` +
-        `Telegram faqat <b>50MB</b> gacha fayllarni qabul qiladi.\n\n` +
-        `💡 <b>Yechimlar:</b>\n` +
-        `• 🎵 Shu havolani <b>Audio (MP3)</b> sifatida yuklab oling\n` +
-        `• ✂️ Video qisqaroq bo'lsin\n` +
-        `• 🔗 Havolani do'stlaringizga yuboring`,
-        { parse_mode: 'HTML' }
+        `⚠️ Video ${Math.round(durationSec / 60)} daqiqa — Telegram 50MB dan katta fayllarni qabul qilmaydi.\n💡 Audio (MP3) sifatida yuklab oling.`
       );
       return;
     }
@@ -80,13 +72,7 @@ async function sendVideo(bot, chatId, filePath) {
           if (stat2.size > TELEGRAM_LIMIT) {
             await fs.remove(fileToSend).catch(() => {});
             await bot.sendMessage(chatId,
-              `⚠️ <b>Video hajmi juda katta</b>\n\n` +
-              `Asl hajm: ${formatBytes(stat.size)}\n` +
-              `Telegram faqat <b>50MB</b> gacha fayllarni qabul qiladi.\n\n` +
-              `💡 <b>Yechimlar:</b>\n` +
-              `• 🎵 Audio (MP3) formatida yuklab oling\n` +
-              `• ✂️ Video qisqaroq qiling`,
-              { parse_mode: 'HTML' }
+              `⚠️ Video hajmi katta (${formatBytes(stat.size)}) — Telegram 50MB dan o'tmaydi.\n💡 Audio (MP3) sifatida yuklab oling.`
             );
             return;
           }
@@ -94,7 +80,7 @@ async function sendVideo(bot, chatId, filePath) {
           logger.error('720p kompressiya xatosi:', e2.message);
           await fs.remove(fileToSend).catch(() => {});
           await bot.sendMessage(chatId,
-            `⚠️ Video hajmi ${formatBytes(stat.size)} — Telegram limiti 50MB.\n\n💡 Audio rejimida yuklab oling.`
+            `⚠️ Video hajmi katta (${formatBytes(stat.size)}) — Audio (MP3) sifatida yuklab oling.`
           );
           return;
         }
@@ -102,8 +88,7 @@ async function sendVideo(bot, chatId, filePath) {
     } catch (e) {
       logger.error('Kompressiya ishlamadi:', e.message);
       await bot.sendMessage(chatId,
-        `⚠️ Video hajmi ${formatBytes(stat.size)} — Telegram limiti 50MB.\n\n` +
-        `💡 Audio (MP3) formatida yuklab oling yoki qisqaroq video yuboring.`
+        `⚠️ Video hajmi katta (${formatBytes(stat.size)}) — Audio (MP3) sifatida yuklab oling.`
       );
       return;
     }
@@ -130,8 +115,7 @@ async function sendAudio(bot, chatId, filePath) {
 
   if (stat.size > TELEGRAM_LIMIT) {
     await bot.sendMessage(chatId,
-      `⚠️ Audio fayli hajmi ${formatBytes(stat.size)} — Telegram limiti 50MB.\n\n` +
-      `💡 Qisqaroq video yuboring.`
+      `⚠️ Audio hajmi katta (${formatBytes(stat.size)}) — Telegram 50MB dan o'tmaydi.`
     );
     return;
   }
