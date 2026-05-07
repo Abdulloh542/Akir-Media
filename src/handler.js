@@ -138,22 +138,33 @@ async function handleCommand(bot, msg, chatId, userId) {
   }
 }
 
+function getWebBaseUrl() {
+  const secret = process.env.ADMIN_WEB_PATH || 'x9admin2024';
+  const base = process.env.RENDER_EXTERNAL_URL ||
+               process.env.WEB_URL ||
+               `http://localhost:${process.env.WEB_PORT || 3000}`;
+  return `${base.replace(/\/$/, '')}/${secret}`;
+}
+
 // ---- ADMIN TELEGRAM PANEL ----
 async function showAdminMenu(bot, chatId) {
   const u = getUserStats();
   const d = getDownloadStats();
+  const webUrl = getWebBaseUrl();
   await bot.sendMessage(chatId,
     `🔐 <b>Admin Panel</b>\n\n` +
     `👥 Foydalanuvchilar: <b>${u.total}</b> (bugun +${u.today})\n` +
     `📥 Yuklab olishlar: <b>${d.total}</b> (bugun ${d.today})\n` +
-    `⚡ Faol (7 kun): <b>${u.active7}</b>`,
+    `⚡ Faol (7 kun): <b>${u.active7}</b>\n\n` +
+    `🌐 <a href="${webUrl}">${webUrl}</a>`,
     {
       parse_mode: 'HTML',
+      disable_web_page_preview: true,
       reply_markup: {
         inline_keyboard: [
           [{ text: '📢 E\'lon yuborish', callback_data: 'adm:broadcast' }],
           [{ text: '📊 Batafsil statistika', callback_data: 'adm:stats' }],
-          [{ text: '🌐 Web panel', callback_data: 'adm:weblink' }],
+          [{ text: '🌐 Web panelni ochish', url: webUrl }],
         ],
       },
     }
@@ -313,15 +324,6 @@ async function handleAdminCallback(bot, query, chatId, messageId, userId, action
     return;
   }
 
-  if (action === 'weblink') {
-    const port = process.env.WEB_PORT || 3000;
-    const secret = process.env.ADMIN_WEB_PATH || 'admin';
-    await bot.editMessageText(
-      `🌐 <b>Web Panel:</b>\n<code>http://localhost:${port}/${secret}</code>\n\nParol: <code>${process.env.ADMIN_PASSWORD || 'akir2024admin'}</code>`,
-      { chat_id: chatId, message_id: messageId, parse_mode: 'HTML' }
-    ).catch(() => {});
-    return;
-  }
 }
 
 module.exports = { handleMessage, handleCallbackQuery };
