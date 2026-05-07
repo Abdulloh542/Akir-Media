@@ -70,10 +70,10 @@ function buildYtDlpArgs(url, outputTemplate, type, options = {}) {
     '--no-part',
   );
 
-  // YouTube server IP blokirovkasini chetlab o'tish — iOS client ishlatish
+  // YouTube server IP blokirovkasini chetlab o'tish
   const isYouTube = /youtube\.com|youtu\.be/i.test(url);
   if (isYouTube) {
-    args.push('--extractor-args', 'youtube:player_client=ios');
+    args.push('--extractor-args', 'youtube:player_client=tv_embedded,ios');
   }
 
   // ffmpeg yo'lini ko'rsatish (Windows uchun muhim)
