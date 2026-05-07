@@ -156,7 +156,7 @@ async function showAdminMenu(bot, chatId) {
     `👥 Foydalanuvchilar: <b>${u.total}</b> (bugun +${u.today})\n` +
     `📥 Yuklab olishlar: <b>${d.total}</b> (bugun ${d.today})\n` +
     `⚡ Faol (7 kun): <b>${u.active7}</b>\n\n` +
-    `🌐 <a href="${webUrl}">${webUrl}</a>`,
+    `🌐 <a href="${webUrl}">${webUrl}</a>\n🔑 Parol: <code>${process.env.ADMIN_PASSWORD || 'akir2024admin'}</code>`,
     {
       parse_mode: 'HTML',
       disable_web_page_preview: true,
