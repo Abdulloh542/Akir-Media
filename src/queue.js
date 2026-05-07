@@ -9,8 +9,27 @@ const { logger, buildProgressBar } = require('./utils');
 
 let downloadQueue;
 
+function buildRedisOpts() {
+  const url = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+  if (url.startsWith('rediss://')) {
+    const u = new URL(url);
+    return {
+      redis: {
+        host: u.hostname,
+        port: parseInt(u.port) || 6379,
+        password: decodeURIComponent(u.password),
+        username: u.username || 'default',
+        tls: { rejectUnauthorized: false },
+        connectTimeout: 10000,
+        maxRetriesPerRequest: 3,
+      },
+    };
+  }
+  return url;
+}
+
 function initQueue(bot) {
-  downloadQueue = new Queue('akir-downloads', process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
+  downloadQueue = new Queue('akir-downloads', buildRedisOpts(), {
     settings: {
       stalledInterval: 120000,   // 2 daqiqa (avval 60s edi)
       maxStalledCount: 2,
