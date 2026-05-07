@@ -108,6 +108,7 @@ async function processDownload(bot, job) {
       chat_id: chatId, message_id: statusMsg.message_id, parse_mode: 'HTML',
     }).catch(() => {});
 
+    logger.info(`Job ${job.id} upload: type=${result.type} filePath=${result.filePath || ''} files=${result.files ? result.files.length : 0} size=${result.size || 0}`);
     await uploadToTelegram(bot, chatId, result);
     await bot.deleteMessage(chatId, statusMsg.message_id).catch(() => {});
     statusMsg = null;
@@ -116,7 +117,10 @@ async function processDownload(bot, job) {
     logger.info(`Job ${job.id} done`);
 
   } catch (err) {
-    logger.error(`Job ${job.id} error:`, err.message);
+    const errDetail = err.message || String(err);
+    const errCode = err.code || err.statusCode || '';
+    logger.error(`Job ${job.id} error [${errCode}]: ${errDetail}`);
+    if (err.stack) logger.error(`Stack: ${err.stack.split('\n').slice(0,3).join(' | ')}`);
 
     // Non-retryable: discard so Bull won't retry
     if (err.nonRetryable) {
