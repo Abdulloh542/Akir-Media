@@ -19,9 +19,6 @@ function isNonRetryable(stderr) {
     s.includes('login required') ||
     s.includes('Login required') ||
     s.includes('rate-limit reached') ||
-    s.includes('rate limit') ||
-    s.includes('Please sign in') ||
-    s.includes('Sign in to confirm') ||
     s.includes('Requested content is not available') ||
     s.includes('This content is not available') ||
     s.includes('No video formats found') ||
@@ -66,12 +63,18 @@ function buildYtDlpArgs(url, outputTemplate, type, options = {}) {
     '--concurrent-fragments', '4',
     '--buffer-size', '16K',
     '--http-chunk-size', '10M',
-    '--socket-timeout', '60',     // 60 soniya socket timeout (avval 30 edi)
+    '--socket-timeout', '60',
     '--no-warnings',
     '--progress',
     '--newline',
     '--no-part',
   );
+
+  // YouTube server IP blokirovkasini chetlab o'tish — iOS client ishlatish
+  const isYouTube = /youtube\.com|youtu\.be/i.test(url);
+  if (isYouTube) {
+    args.push('--extractor-args', 'youtube:player_client=ios');
+  }
 
   // ffmpeg yo'lini ko'rsatish (Windows uchun muhim)
   const ffmpegDir = path.dirname(FFMPEG_BIN);
