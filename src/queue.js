@@ -11,11 +11,14 @@ let downloadQueue;
 
 function initQueue(bot) {
   downloadQueue = new Queue('akir-downloads', process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
-    settings: { stalledInterval: 60000, maxStalledCount: 2 },
+    settings: {
+      stalledInterval: 120000,   // 2 daqiqa (avval 60s edi)
+      maxStalledCount: 2,
+    },
     defaultJobOptions: {
-      attempts: 3,
-      backoff: { type: 'exponential', delay: 3000 },
-      timeout: 35 * 60 * 1000,
+      attempts: 2,               // 2 urinish (avval 3 edi — ortiqcha)
+      backoff: { type: 'exponential', delay: 5000 },
+      timeout: 120 * 60 * 1000, // 2 soat (avval 35 daqiqa — uzun video uchun yetmaydi)
       removeOnComplete: 100,
       removeOnFail: 50,
     },
@@ -102,7 +105,7 @@ async function processDownload(bot, job) {
     }
 
     // Show error to user only on last attempt or non-retryable
-    const isFinalAttempt = err.nonRetryable || job.attemptsMade >= (job.opts.attempts || 3);
+    const isFinalAttempt = err.nonRetryable || job.attemptsMade >= (job.opts.attempts || 2);
     if (isFinalAttempt) {
       const errMsg = `❌ <b>Yuklab bo'lmadi:</b>\n${err?.message || String(err)}`;
       if (statusMsg) {
@@ -117,7 +120,7 @@ async function processDownload(bot, job) {
       }
     } else if (statusMsg) {
       await bot.editMessageText(
-        `⚠️ Xato yuz berdi, qayta urinilmoqda... (${job.attemptsMade}/${job.opts.attempts || 3})`,
+        `⚠️ Xato yuz berdi, qayta urinilmoqda... (${job.attemptsMade}/${job.opts.attempts || 2})`,
         { chat_id: chatId, message_id: statusMsg.message_id }
       ).catch(() => {});
     }

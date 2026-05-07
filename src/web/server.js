@@ -11,7 +11,7 @@ const { logger } = require('../utils');
 const app = express();
 const ADMIN_PASSWORD  = process.env.ADMIN_PASSWORD  || 'akir2024admin';
 const SESSION_SECRET  = process.env.SESSION_SECRET  || 'akir-secret-key-change-me';
-const WEB_PORT        = parseInt(process.env.WEB_PORT) || 3000;
+const WEB_PORT        = parseInt(process.env.PORT || process.env.WEB_PORT) || 3000;
 const ADMIN_WEB_PATH  = process.env.ADMIN_WEB_PATH  || 'x9admin2024'; // secret path
 
 const UPLOADS_DIR = path.join(process.cwd(), 'public', 'uploads');

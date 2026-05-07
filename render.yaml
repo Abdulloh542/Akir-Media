@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: akir-media-bot
+    env: node
+    region: frankfurt
+    plan: free
+    buildCommand: bash scripts/build.sh
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: YTDLP_PATH
+        value: yt-dlp
+      - key: FFMPEG_PATH
+        value: ffmpeg
+      - key: DOWNLOAD_PATH
+        value: /tmp/akir-downloads
+      - key: MAX_CONCURRENT_DOWNLOADS
+        value: "3"
+      - key: MAX_FILE_SIZE
+        value: "2000"
+      # Set these in Render dashboard (secret values):
+      # BOT_TOKEN
+      # ADMIN_ID
+      # ADMIN_PASSWORD
+      # SESSION_SECRET
+      # ADMIN_WEB_PATH
+      # REDIS_URL  ← from Render Redis add-on or Upstash

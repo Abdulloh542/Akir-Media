@@ -7,6 +7,10 @@ const { logger, formatBytes } = require('./utils');
 const FFMPEG_BIN  = process.env.FFMPEG_PATH || 'ffmpeg';
 const TELEGRAM_LIMIT = 49 * 1024 * 1024; // 49 MB (Telegram cloud API)
 
+// Telegram bot.sendVideo() uchun maksimal kutish vaqti (ms)
+// 30 daqiqali video uchun yetarli: 10 daqiqa
+const UPLOAD_TIMEOUT_MS = 10 * 60 * 1000;
+
 async function uploadToTelegram(bot, chatId, result) {
   const { type, filePath, files } = result;
 
@@ -26,37 +30,94 @@ async function sendVideo(bot, chatId, filePath) {
 
   let fileToSend = filePath;
   const stat = await fs.stat(filePath);
+  const sizeMB = stat.size / (1024 * 1024);
   logger.info(`Sending video: ${path.basename(filePath)} (${formatBytes(stat.size)})`);
 
   if (stat.size > TELEGRAM_LIMIT) {
-    logger.info(`File too large (${formatBytes(stat.size)}), compressing...`);
+    logger.info(`Fayl ${formatBytes(stat.size)} — Telegram limiti oshdi, kompressiya boshlandi...`);
+
+    // Videoning davomiyligini aniqlash
+    let durationSec = 0;
     try {
-      fileToSend = await compressVideo(filePath, 48);
+      durationSec = await getVideoDuration(filePath);
+    } catch (e) {
+      logger.warn('Davomiylikni aniqlab bo\'lmadi:', e.message);
+    }
+
+    logger.info(`Video davomiyligi: ${Math.round(durationSec)} soniya`);
+
+    // 30 daqiqadan uzun video uchun ogohlantiruv
+    if (durationSec > 30 * 60) {
+      await bot.sendMessage(chatId,
+        `⚠️ <b>Video juda uzun (${Math.round(durationSec / 60)} daqiqa)</b>\n\n` +
+        `Fayl hajmi: ${formatBytes(stat.size)}\n` +
+        `Telegram faqat <b>50MB</b> gacha fayllarni qabul qiladi.\n\n` +
+        `💡 <b>Yechimlar:</b>\n` +
+        `• 🎵 Shu havolani <b>Audio (MP3)</b> sifatida yuklab oling\n` +
+        `• ✂️ Video qisqaroq bo'lsin\n` +
+        `• 🔗 Havolani do'stlaringizga yuboring`,
+        { parse_mode: 'HTML' }
+      );
+      return;
+    }
+
+    try {
+      fileToSend = await compressVideo(filePath, 48, durationSec);
       const newStat = await fs.stat(fileToSend);
-      logger.info(`Compressed to: ${formatBytes(newStat.size)}`);
+      logger.info(`Kompressiya natijasi: ${formatBytes(newStat.size)}`);
 
       if (newStat.size > TELEGRAM_LIMIT) {
-        await bot.sendMessage(chatId,
-          `⚠️ Video hajmi juda katta (${formatBytes(stat.size)}).\n` +
-          `Telegram 50MB dan katta fayllarni qabul qilmaydi.\n\n` +
-          `💡 Yechim: YouTube videolarida Audio rejimini tanlang yoki qisqaroq video yuboring.`
-        );
-        return;
+        // Ikkinchi kompressiya: 720p ga tushirish
+        logger.info('Birinchi kompressiya yetarli emas, 720p ga o\'tkazilmoqda...');
+        try {
+          const compressed2 = await compressVideoTo720p(filePath, 46, durationSec);
+          const stat2 = await fs.stat(compressed2);
+          // Birinchi kompressiyani o'chirish
+          await fs.remove(fileToSend).catch(() => {});
+          fileToSend = compressed2;
+          logger.info(`720p kompressiya: ${formatBytes(stat2.size)}`);
+
+          if (stat2.size > TELEGRAM_LIMIT) {
+            await fs.remove(fileToSend).catch(() => {});
+            await bot.sendMessage(chatId,
+              `⚠️ <b>Video hajmi juda katta</b>\n\n` +
+              `Asl hajm: ${formatBytes(stat.size)}\n` +
+              `Telegram faqat <b>50MB</b> gacha fayllarni qabul qiladi.\n\n` +
+              `💡 <b>Yechimlar:</b>\n` +
+              `• 🎵 Audio (MP3) formatida yuklab oling\n` +
+              `• ✂️ Video qisqaroq qiling`,
+              { parse_mode: 'HTML' }
+            );
+            return;
+          }
+        } catch (e2) {
+          logger.error('720p kompressiya xatosi:', e2.message);
+          await fs.remove(fileToSend).catch(() => {});
+          await bot.sendMessage(chatId,
+            `⚠️ Video hajmi ${formatBytes(stat.size)} — Telegram limiti 50MB.\n\n💡 Audio rejimida yuklab oling.`
+          );
+          return;
+        }
       }
     } catch (e) {
-      logger.error('Compression failed:', e.message);
+      logger.error('Kompressiya ishlamadi:', e.message);
       await bot.sendMessage(chatId,
         `⚠️ Video hajmi ${formatBytes(stat.size)} — Telegram limiti 50MB.\n\n` +
-        `💡 Audio rejimida yuklab oling yoki qisqaroq video yuboring.`
+        `💡 Audio (MP3) formatida yuklab oling yoki qisqaroq video yuboring.`
       );
       return;
     }
   }
 
-  await bot.sendVideo(chatId, fs.createReadStream(fileToSend), {
-    supports_streaming: true,
-    caption: '✅ @AkirMediaBot',
-  });
+  // Telegramga yuklash — timeout bilan
+  await sendWithTimeout(
+    bot.sendVideo(chatId, fs.createReadStream(fileToSend), {
+      supports_streaming: true,
+      caption: '✅ @AkirMediaBot',
+    }),
+    UPLOAD_TIMEOUT_MS,
+    'Video yuklash timeout'
+  );
 
   // Kompressiya qilingan faylni o'chirish
   if (fileToSend !== filePath) await fs.remove(fileToSend).catch(() => {});
@@ -66,23 +127,44 @@ async function sendAudio(bot, chatId, filePath) {
   if (!filePath || !fs.existsSync(filePath)) throw new Error('Audio fayl topilmadi');
   const stat = await fs.stat(filePath);
   logger.info(`Sending audio: ${path.basename(filePath)} (${formatBytes(stat.size)})`);
-  await bot.sendAudio(chatId, fs.createReadStream(filePath), {
-    caption: '✅ @AkirMediaBot',
-  });
+
+  if (stat.size > TELEGRAM_LIMIT) {
+    await bot.sendMessage(chatId,
+      `⚠️ Audio fayli hajmi ${formatBytes(stat.size)} — Telegram limiti 50MB.\n\n` +
+      `💡 Qisqaroq video yuboring.`
+    );
+    return;
+  }
+
+  await sendWithTimeout(
+    bot.sendAudio(chatId, fs.createReadStream(filePath), {
+      caption: '✅ @AkirMediaBot',
+    }),
+    UPLOAD_TIMEOUT_MS,
+    'Audio yuklash timeout'
+  );
 }
 
 async function sendSingleMedia(bot, chatId, filePath) {
   if (!filePath || !fs.existsSync(filePath)) return;
   const ext = path.extname(filePath).toLowerCase();
   if (['.mp4', '.mov', '.webm', '.mkv'].includes(ext)) {
-    await bot.sendVideo(chatId, fs.createReadStream(filePath), {
-      supports_streaming: true,
-      caption: '✅ @AkirMediaBot',
-    });
+    await sendWithTimeout(
+      bot.sendVideo(chatId, fs.createReadStream(filePath), {
+        supports_streaming: true,
+        caption: '✅ @AkirMediaBot',
+      }),
+      UPLOAD_TIMEOUT_MS,
+      'Video yuklash timeout'
+    );
   } else {
-    await bot.sendPhoto(chatId, fs.createReadStream(filePath), {
-      caption: '✅ @AkirMediaBot',
-    });
+    await sendWithTimeout(
+      bot.sendPhoto(chatId, fs.createReadStream(filePath), {
+        caption: '✅ @AkirMediaBot',
+      }),
+      UPLOAD_TIMEOUT_MS,
+      'Rasm yuklash timeout'
+    );
   }
 }
 
@@ -101,20 +183,37 @@ async function sendMediaGroup(bot, chatId, files) {
         ...(i === 0 ? { caption: '✅ @AkirMediaBot' } : {}),
       };
     });
-    await bot.sendMediaGroup(chatId, media);
+    await sendWithTimeout(
+      bot.sendMediaGroup(chatId, media),
+      UPLOAD_TIMEOUT_MS,
+      'Media group yuklash timeout'
+    );
     if (chunks.length > 1) await new Promise(r => setTimeout(r, 1000));
   }
 }
 
-// FFmpeg bilan hajmini kamaytirish
-function compressVideo(inputPath, targetMB) {
+// Promise uchun timeout wrapper
+function sendWithTimeout(promise, ms, label = 'Timeout') {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label}: ${ms / 1000} soniyadan oshdi. Internet aloqasi yoki server muammosi.`));
+    }, ms);
+
+    promise
+      .then((result) => { clearTimeout(timer); resolve(result); })
+      .catch((err) => { clearTimeout(timer); reject(err); });
+  });
+}
+
+// Videoning davomiyligini ffprobe orqali aniqlash
+function getVideoDuration(filePath) {
   return new Promise((resolve, reject) => {
     const ffprobe = process.env.FFMPEG_PATH
-      ? process.env.FFMPEG_PATH.replace('ffmpeg.exe', 'ffprobe.exe').replace('ffmpeg', 'ffprobe')
+      ? process.env.FFMPEG_PATH.replace('ffmpeg.exe', 'ffprobe.exe').replace(/ffmpeg$/, 'ffprobe')
       : 'ffprobe';
 
     const probe = spawn(ffprobe, [
-      '-v', 'quiet', '-print_format', 'json', '-show_format', inputPath,
+      '-v', 'quiet', '-print_format', 'json', '-show_format', filePath,
     ]);
     let buf = '';
     probe.stdout.on('data', d => buf += d);
@@ -122,24 +221,64 @@ function compressVideo(inputPath, targetMB) {
     probe.on('close', (code) => {
       if (code !== 0) return reject(new Error('ffprobe xatosi'));
       try {
-        const duration = parseFloat(JSON.parse(buf).format.duration);
-        if (!duration) return reject(new Error('Davomiylik aniqlanmadi'));
-
-        const targetBitrate = Math.max(200, Math.floor((targetMB * 8 * 1024) / duration) - 128);
-        const outPath = inputPath.replace(/(\.[^.]+)$/, '_c.mp4');
-
-        const ff = spawn(FFMPEG_BIN, [
-          '-i', inputPath,
-          '-c:v', 'libx264', '-preset', 'fast',
-          '-b:v', `${targetBitrate}k`,
-          '-c:a', 'aac', '-b:a', '96k',
-          '-movflags', '+faststart',
-          '-y', outPath,
-        ]);
-        ff.on('error', reject);
-        ff.on('close', c => c === 0 ? resolve(outPath) : reject(new Error('ffmpeg kompressiya xatosi')));
-      } catch (e) { reject(e); }
+        const data = JSON.parse(buf);
+        const duration = parseFloat(data.format?.duration || '0');
+        resolve(duration);
+      } catch (e) {
+        reject(new Error('Davomiylikni tahlil qilib bo\'lmadi'));
+      }
     });
+  });
+}
+
+// Standart kompressiya (1080p saqlanadi, bitrate kamaytiriiladi)
+function compressVideo(inputPath, targetMB, durationSec) {
+  return new Promise((resolve, reject) => {
+    if (!durationSec || durationSec <= 0) {
+      return reject(new Error('Davomiylik aniqlanmadi'));
+    }
+
+    const targetBitrate = Math.max(200, Math.floor((targetMB * 8 * 1024) / durationSec) - 128);
+    const outPath = inputPath.replace(/(\.[^.]+)$/, '_c.mp4');
+
+    logger.info(`FFmpeg kompressiya: ${targetBitrate}k video bitrate`);
+
+    const ff = spawn(FFMPEG_BIN, [
+      '-i', inputPath,
+      '-c:v', 'libx264', '-preset', 'fast',
+      '-b:v', `${targetBitrate}k`,
+      '-c:a', 'aac', '-b:a', '96k',
+      '-movflags', '+faststart',
+      '-y', outPath,
+    ]);
+    ff.on('error', reject);
+    ff.on('close', c => c === 0 ? resolve(outPath) : reject(new Error('ffmpeg kompressiya xatosi')));
+  });
+}
+
+// Kuchli kompressiya — 720p ga tushirish
+function compressVideoTo720p(inputPath, targetMB, durationSec) {
+  return new Promise((resolve, reject) => {
+    if (!durationSec || durationSec <= 0) {
+      return reject(new Error('Davomiylik aniqlanmadi'));
+    }
+
+    const targetBitrate = Math.max(150, Math.floor((targetMB * 8 * 1024) / durationSec) - 96);
+    const outPath = inputPath.replace(/(\.[^.]+)$/, '_720p.mp4');
+
+    logger.info(`FFmpeg 720p kompressiya: ${targetBitrate}k video bitrate`);
+
+    const ff = spawn(FFMPEG_BIN, [
+      '-i', inputPath,
+      '-vf', 'scale=-2:720',         // 720p gacha kamaytirish
+      '-c:v', 'libx264', '-preset', 'fast',
+      '-b:v', `${targetBitrate}k`,
+      '-c:a', 'aac', '-b:a', '64k',
+      '-movflags', '+faststart',
+      '-y', outPath,
+    ]);
+    ff.on('error', reject);
+    ff.on('close', c => c === 0 ? resolve(outPath) : reject(new Error('720p kompressiya xatosi')));
   });
 }
 

@@ -82,14 +82,15 @@ async function handleMessage(bot, msg) {
   // YouTube → Video yoki Audio tanlash
   if (platform.supportsAudio || platform.key === 'youtube') {
     const urlId = saveUrl(url);
+    const platformLabel = platform.emoji ? `${platform.emoji} <b>${platform.name}</b>` : '🎬 <b>Video</b>';
     return bot.sendMessage(chatId,
-      `🔴 <b>YouTube</b> — format tanlang:`,
+      `${platformLabel} — format tanlang:`,
       {
         parse_mode: 'HTML',
         reply_to_message_id: msg.message_id,
         reply_markup: {
           inline_keyboard: [[
-            { text: '🎬 Video', callback_data: `v:${urlId}` },
+            { text: '🎬 Video (MP4)', callback_data: `v:${urlId}` },
             { text: '🎵 Audio (MP3)', callback_data: `a:${urlId}` },
           ]],
         },
@@ -226,8 +227,11 @@ async function handleCallbackQuery(bot, query) {
 
   const url = getUrl(urlId);
   if (!url) {
-    await bot.answerCallbackQuery(query.id, { text: '❌ Havola eskirgan. Qayta yuboring.' });
-    await bot.editMessageText('❌ Havola eskirgan. Qayta yuboring.', { chat_id: chatId, message_id: messageId }).catch(() => {});
+    await bot.answerCallbackQuery(query.id, { text: '❌ Havola eskirgan. Iltimos havolani qayta yuboring.' });
+    await bot.editMessageText(
+      '❌ <b>Havola eskirgan</b>\n\nIltimos havolani qayta yuboring.\n\n<i>Eslatma: Havolalar 6 soat saqlanadi.</i>',
+      { chat_id: chatId, message_id: messageId, parse_mode: 'HTML' }
+    ).catch(() => {});
     return;
   }
 

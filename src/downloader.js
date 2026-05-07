@@ -40,6 +40,12 @@ fs.ensureDirSync(DOWNLOAD_PATH);
 const YTDLP_BIN = process.env.YTDLP_PATH || 'yt-dlp';
 const FFMPEG_BIN = process.env.FFMPEG_PATH || 'ffmpeg';
 
+// Maksimal ruxsat etilgan fayl hajmi (MB) — .env dan o'qiladi
+const MAX_FILE_MB = parseInt(process.env.MAX_FILE_SIZE) || 2000;
+
+// Telegram bot API limiti: 50MB
+const TELEGRAM_LIMIT_MB = 50;
+
 function buildYtDlpArgs(url, outputTemplate, type, options = {}) {
   const args = [url];
 
@@ -50,8 +56,10 @@ function buildYtDlpArgs(url, outputTemplate, type, options = {}) {
       '--audio-quality', '0'
     );
   } else {
+    // Katta videolar uchun 720p gacha cheklov — fayl hajmini kamaytirish
+    // Agar sifat muhim bo'lsa va hajm katta bo'lsa ham qabul qilsin
     args.push(
-      '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best',
+      '-f', 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080][ext=mp4]/best[height<=1080]/best',
       '--merge-output-format', 'mp4'
     );
   }
@@ -59,12 +67,12 @@ function buildYtDlpArgs(url, outputTemplate, type, options = {}) {
   args.push(
     '-o', outputTemplate,
     '--no-playlist',
-    '--retries', '10',
-    '--fragment-retries', '10',
-    '--concurrent-fragments', '8',
+    '--retries', '5',
+    '--fragment-retries', '5',
+    '--concurrent-fragments', '4',
     '--buffer-size', '16K',
     '--http-chunk-size', '10M',
-    '--socket-timeout', '30',
+    '--socket-timeout', '60',     // 60 soniya socket timeout (avval 30 edi)
     '--no-warnings',
     '--progress',
     '--newline',
@@ -72,7 +80,7 @@ function buildYtDlpArgs(url, outputTemplate, type, options = {}) {
   );
 
   // ffmpeg yo'lini ko'rsatish (Windows uchun muhim)
-  const ffmpegDir = require('path').dirname(FFMPEG_BIN);
+  const ffmpegDir = path.dirname(FFMPEG_BIN);
   if (fs.existsSync(FFMPEG_BIN)) {
     args.push('--ffmpeg-location', ffmpegDir);
   }
@@ -88,19 +96,54 @@ function buildYtDlpArgs(url, outputTemplate, type, options = {}) {
   return args;
 }
 
+// yt-dlp jarayonini ishga tushirish — timeout bilan
+function spawnWithTimeout(bin, args, timeoutMs) {
+  return new Promise((resolve) => {
+    const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let killed = false;
+
+    const timer = setTimeout(() => {
+      if (!killed) {
+        killed = true;
+        proc.kill('SIGKILL');
+        logger.warn(`yt-dlp jarayon timeout (${timeoutMs / 1000}s) — o'ldirildi`);
+      }
+    }, timeoutMs);
+
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({ proc, code, killed });
+    });
+
+    resolve({ proc, timer, killed: () => killed });
+  });
+}
+
 async function downloadVideo(url, outputDir, progressCallback) {
   const outputTemplate = path.join(outputDir, '%(title).100s.%(ext)s');
   const args = buildYtDlpArgs(url, outputTemplate, 'video');
+
+  // Maksimal vaqt: 90 daqiqa (uzun videolar uchun)
+  const PROCESS_TIMEOUT = 90 * 60 * 1000;
 
   return new Promise((resolve, reject) => {
     logger.debug('yt-dlp video start', { url });
     const proc = spawn(YTDLP_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let filePath = null;
     let stderr = '';
+    let killed = false;
+
+    // Process timeout
+    const timer = setTimeout(() => {
+      killed = true;
+      proc.kill('SIGKILL');
+      reject(new Error('Video yuklab olish juda uzoq davom etdi (90 daqiqa). Qisqaroq video yuboring.'));
+    }, PROCESS_TIMEOUT);
 
     proc.stdout.on('data', (data) => {
       const text = data.toString();
 
+      // Progress parsing — turli yt-dlp formatlarini qo'llab-quvvatlash
       const progressMatch = text.match(/(\d+\.?\d*)%\s+of\s+~?\s*([\d.]+\w+)\s+at\s+([\d.]+\w+\/s)/);
       if (progressMatch && progressCallback) {
         progressCallback({
@@ -128,12 +171,17 @@ async function downloadVideo(url, outputDir, progressCallback) {
     });
 
     proc.on('close', async (code) => {
+      clearTimeout(timer);
+
+      if (killed) return; // timeout reject allaqachon chaqirilgan
+
       if (code !== 0) {
         const errMsg = parseYtDlpError(stderr);
         reject(isNonRetryable(stderr) ? new NonRetryableError(errMsg) : new Error(errMsg));
         return;
       }
 
+      // Fayl yo'lini topish
       if (!filePath || !fs.existsSync(filePath)) {
         const files = await fs.readdir(outputDir);
         const videoFile = files.find(f =>
@@ -148,13 +196,16 @@ async function downloadVideo(url, outputDir, progressCallback) {
       }
 
       const stat = await fs.stat(filePath);
+      const sizeMB = stat.size / (1024 * 1024);
       logger.info(`Video downloaded: ${path.basename(filePath)} (${formatBytes(stat.size)})`);
-      resolve({ type: 'video', filePath, size: stat.size });
+
+      resolve({ type: 'video', filePath, size: stat.size, sizeMB });
     });
 
     proc.on('error', (err) => {
+      clearTimeout(timer);
       if (err.code === 'ENOENT') {
-        reject(new Error('yt-dlp o\'rnatilmagan. Iltimos serverga o\'rnating.'));
+        reject(new Error('yt-dlp o\'rnatilmagan. Iltimos o\'rnating.'));
       } else {
         reject(err);
       }
@@ -166,11 +217,20 @@ async function downloadAudio(url, outputDir, progressCallback) {
   const outputTemplate = path.join(outputDir, '%(title).100s.%(ext)s');
   const args = buildYtDlpArgs(url, outputTemplate, 'audio');
 
+  const PROCESS_TIMEOUT = 60 * 60 * 1000; // 60 daqiqa
+
   return new Promise((resolve, reject) => {
     logger.debug('yt-dlp audio start', { url });
     const proc = spawn(YTDLP_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let filePath = null;
     let stderr = '';
+    let killed = false;
+
+    const timer = setTimeout(() => {
+      killed = true;
+      proc.kill('SIGKILL');
+      reject(new Error('Audio yuklab olish juda uzoq davom etdi (60 daqiqa).'));
+    }, PROCESS_TIMEOUT);
 
     proc.stdout.on('data', (data) => {
       const text = data.toString();
@@ -187,6 +247,9 @@ async function downloadAudio(url, outputDir, progressCallback) {
     });
 
     proc.on('close', async (code) => {
+      clearTimeout(timer);
+      if (killed) return;
+
       if (code !== 0) {
         const errMsg = parseYtDlpError(stderr);
         reject(isNonRetryable(stderr) ? new NonRetryableError(errMsg) : new Error(errMsg));
@@ -210,6 +273,7 @@ async function downloadAudio(url, outputDir, progressCallback) {
     });
 
     proc.on('error', (err) => {
+      clearTimeout(timer);
       if (err.code === 'ENOENT') {
         reject(new Error('yt-dlp o\'rnatilmagan.'));
       } else {
@@ -289,9 +353,6 @@ function downloadWithGalleryDl(url, outputDir, progressCallback) {
     }
 
     const proc = spawn('gallery-dl', args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let hasOutput = false;
-
-    proc.stdout.on('data', () => { hasOutput = true; });
 
     proc.on('close', async (code) => {
       const allFiles = await getMediaFiles(outputDir);
@@ -396,7 +457,6 @@ function parseYtDlpError(stderr) {
   const errorLine = stderr.split('\n').find(l => l.includes('ERROR:'));
   if (errorLine) {
     const msg = errorLine.replace(/ERROR:\s*/, '').trim();
-    // Strip yt-dlp GitHub issue URLs from error message
     return msg.replace(/;\s*please report.*$/i, '').trim() || 'Yuklab olishda xato';
   }
 
