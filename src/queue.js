@@ -1,6 +1,6 @@
 require('dotenv').config({ override: true });
 const Queue = require('bull');
-const { downloadMedia, cleanup } = require('./downloader');
+const { downloadMedia, cleanup, NonRetryableError } = require('./downloader');
 const { uploadToTelegram } = require('./uploader');
 const { incrementJobs, decrementJobs } = require('./ratelimit');
 const { trackDownload } = require('./database');
@@ -27,12 +27,8 @@ function initQueue(bot) {
   downloadQueue.on('failed', async (job, err) => {
     const errMsg = err?.message || err?.toString() || 'Noma\'lum xato';
     logger.error(`Job ${job.id} failed (${job.attemptsMade}/${job.opts.attempts}): ${errMsg}`);
-    const { chatId, userId, url } = job.data;
-    if (userId) decrementJobs(userId);
-    try { trackDownload(chatId, detectPlatform(url).name, job.data.type, 'failed'); } catch {}
-    if (job.attemptsMade >= (job.opts.attempts || 3)) {
-      try { await bot.sendMessage(chatId, `❌ Yuklab olishda xato:\n<b>${errMsg}</b>\n\nQayta urinib ko'ring.`, { parse_mode: 'HTML' }); } catch {}
-    }
+    // decrementJobs is handled in processDownload's finally block
+    try { trackDownload(job.data.chatId, detectPlatform(job.data.url).name, job.data.type, 'failed'); } catch {}
   });
 
   downloadQueue.on('error', (err) => logger.error('Queue error:', err.message));
@@ -99,16 +95,33 @@ async function processDownload(bot, job) {
 
   } catch (err) {
     logger.error(`Job ${job.id} error:`, err.message);
-    try { trackDownload(chatId, detectPlatform(url).name, type, 'failed'); } catch {}
 
-    const errMsg = `❌ <b>Xato:</b>\n${err?.message || String(err)}`;
-    if (statusMsg) {
-      await bot.editMessageText(errMsg, { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: 'HTML' }).catch(async () => {
-        await bot.sendMessage(chatId, errMsg, { parse_mode: 'HTML' }).catch(() => {});
-      });
-    } else {
-      await bot.sendMessage(chatId, errMsg, { parse_mode: 'HTML' }).catch(() => {});
+    // Non-retryable: discard so Bull won't retry
+    if (err.nonRetryable) {
+      try { await job.discard(); } catch {}
     }
+
+    // Show error to user only on last attempt or non-retryable
+    const isFinalAttempt = err.nonRetryable || job.attemptsMade >= (job.opts.attempts || 3);
+    if (isFinalAttempt) {
+      const errMsg = `❌ <b>Yuklab bo'lmadi:</b>\n${err?.message || String(err)}`;
+      if (statusMsg) {
+        await bot.editMessageText(errMsg, {
+          chat_id: chatId, message_id: statusMsg.message_id, parse_mode: 'HTML',
+        }).catch(async () => {
+          await bot.sendMessage(chatId, errMsg, { parse_mode: 'HTML' }).catch(() => {});
+        });
+        statusMsg = null;
+      } else {
+        await bot.sendMessage(chatId, errMsg, { parse_mode: 'HTML' }).catch(() => {});
+      }
+    } else if (statusMsg) {
+      await bot.editMessageText(
+        `⚠️ Xato yuz berdi, qayta urinilmoqda... (${job.attemptsMade}/${job.opts.attempts || 3})`,
+        { chat_id: chatId, message_id: statusMsg.message_id }
+      ).catch(() => {});
+    }
+
     throw err;
   } finally {
     if (userId) decrementJobs(userId);

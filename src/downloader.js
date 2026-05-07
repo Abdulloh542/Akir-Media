@@ -5,6 +5,35 @@ const fs = require('fs-extra');
 const { v4: uuidv4 } = require('uuid');
 const { logger, formatBytes } = require('./utils');
 
+class NonRetryableError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'NonRetryableError';
+    this.nonRetryable = true;
+  }
+}
+
+function isNonRetryable(stderr) {
+  const s = stderr || '';
+  return (
+    s.includes('login required') ||
+    s.includes('Login required') ||
+    s.includes('rate-limit reached') ||
+    s.includes('rate limit') ||
+    s.includes('Please sign in') ||
+    s.includes('Sign in to confirm') ||
+    s.includes('Requested content is not available') ||
+    s.includes('This content is not available') ||
+    s.includes('No video formats found') ||
+    s.includes('age-restricted') ||
+    s.includes('Private video') ||
+    s.includes('Video unavailable') ||
+    s.includes('copyright') ||
+    s.includes('geo-restricted') ||
+    s.includes('not available in your country')
+  );
+}
+
 const DOWNLOAD_PATH = process.env.DOWNLOAD_PATH || './downloads';
 fs.ensureDirSync(DOWNLOAD_PATH);
 
@@ -101,7 +130,7 @@ async function downloadVideo(url, outputDir, progressCallback) {
     proc.on('close', async (code) => {
       if (code !== 0) {
         const errMsg = parseYtDlpError(stderr);
-        reject(new Error(errMsg));
+        reject(isNonRetryable(stderr) ? new NonRetryableError(errMsg) : new Error(errMsg));
         return;
       }
 
@@ -159,7 +188,8 @@ async function downloadAudio(url, outputDir, progressCallback) {
 
     proc.on('close', async (code) => {
       if (code !== 0) {
-        reject(new Error(parseYtDlpError(stderr)));
+        const errMsg = parseYtDlpError(stderr);
+        reject(isNonRetryable(stderr) ? new NonRetryableError(errMsg) : new Error(errMsg));
         return;
       }
 
@@ -190,12 +220,59 @@ async function downloadAudio(url, outputDir, progressCallback) {
 }
 
 async function downloadImages(url, outputDir, progressCallback) {
+  let galleryErr;
   try {
     return await downloadWithGalleryDl(url, outputDir, progressCallback);
   } catch (e) {
+    galleryErr = e;
     logger.debug('gallery-dl failed, trying yt-dlp:', e.message);
-    return await downloadWithYtDlp(url, outputDir, progressCallback);
   }
+
+  let ytErr;
+  try {
+    return await downloadWithYtDlp(url, outputDir, progressCallback);
+  } catch (e) {
+    ytErr = e;
+    logger.debug('yt-dlp video failed, trying thumbnail extract:', e.message);
+  }
+
+  // Last resort: extract thumbnail image via yt-dlp (works for image-only pins)
+  try {
+    return await downloadThumbnailOnly(url, outputDir);
+  } catch (thumbErr) {
+    logger.debug('thumbnail extract failed:', thumbErr.message);
+    throw new NonRetryableError(ytErr?.message || galleryErr?.message || 'Rasm yuklab bo\'lmadi');
+  }
+}
+
+function downloadThumbnailOnly(url, outputDir) {
+  return new Promise((resolve, reject) => {
+    const args = [
+      url,
+      '--write-thumbnail',
+      '--skip-download',
+      '--convert-thumbnails', 'jpg',
+      '-o', path.join(outputDir, '%(id)s'),
+      '--no-playlist',
+      '--no-warnings',
+    ];
+    if (process.env.PROXY_URL) args.push('--proxy', process.env.PROXY_URL);
+    if (process.env.COOKIES_FILE && fs.existsSync(process.env.COOKIES_FILE)) {
+      args.push('--cookies', process.env.COOKIES_FILE);
+    }
+
+    const proc = spawn(YTDLP_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    proc.on('close', async () => {
+      const files = await getMediaFiles(outputDir);
+      if (files.length > 0) {
+        logger.info(`Thumbnail extracted: ${files.length} file(s)`);
+        resolve({ type: 'images', files, count: files.length });
+      } else {
+        reject(new Error('Thumbnail topilmadi'));
+      }
+    });
+    proc.on('error', () => reject(new Error('yt-dlp topilmadi')));
+  });
 }
 
 function downloadWithGalleryDl(url, outputDir, progressCallback) {
@@ -304,18 +381,24 @@ async function getMediaFiles(dir) {
 function parseYtDlpError(stderr) {
   if (!stderr) return 'Noma\'lum xato yuz berdi';
 
+  if (stderr.includes('No video formats found')) return 'Bu havolada yuklab olinadigan video topilmadi';
   if (stderr.includes('Video unavailable')) return 'Video mavjud emas yoki o\'chirilgan';
   if (stderr.includes('Private video')) return 'Bu private video, yuklab bo\'lmaydi';
-  if (stderr.includes('Sign in')) return 'Bu video login talab qiladi';
+  if (stderr.includes('Sign in') || stderr.includes('login required') || stderr.includes('Login required')) return 'Bu kontent login talab qiladi';
+  if (stderr.includes('Requested content is not available') || stderr.includes('rate-limit reached')) return 'Bu kontent mavjud emas yoki cheklov o\'rnatilgan';
   if (stderr.includes('age-restricted')) return 'Bu video yosh chekloviga ega';
   if (stderr.includes('copyright')) return 'Bu video mualliflik huquqi bilan himoyalangan';
-  if (stderr.includes('geo')) return 'Bu video sizning mamlakatda mavjud emas (geoblok)';
+  if (stderr.includes('geo') || stderr.includes('not available in your country')) return 'Bu kontent sizning mamlakatda mavjud emas';
   if (stderr.includes('not found') || stderr.includes('404')) return 'Havola topilmadi (404)';
   if (stderr.includes('rate limit') || stderr.includes('429')) return 'So\'rovlar chegarasi oshdi. Biroz kutib qayta urinib ko\'ring';
   if (stderr.includes('network') || stderr.includes('connection')) return 'Tarmoq xatosi. Qayta urinib ko\'ring';
 
   const errorLine = stderr.split('\n').find(l => l.includes('ERROR:'));
-  if (errorLine) return errorLine.replace('ERROR:', '').trim();
+  if (errorLine) {
+    const msg = errorLine.replace(/ERROR:\s*/, '').trim();
+    // Strip yt-dlp GitHub issue URLs from error message
+    return msg.replace(/;\s*please report.*$/i, '').trim() || 'Yuklab olishda xato';
+  }
 
   return 'Yuklab olishda xato. Havola to\'g\'ri ekanligini tekshiring';
 }
@@ -327,9 +410,13 @@ async function downloadMedia(url, type = 'video', progressCallback = null) {
 
   try {
     let result;
+
+    // Instagram /p/ URLs are carousel posts — always use gallery-dl first
+    const isInstagramPost = /instagram\.com\/(?:[\w.]+\/)?p\/[\w-]+/i.test(url);
+
     if (type === 'audio') {
       result = await downloadAudio(url, outputDir, progressCallback);
-    } else if (type === 'image') {
+    } else if (type === 'image' || isInstagramPost) {
       result = await downloadImages(url, outputDir, progressCallback);
     } else {
       result = await downloadVideo(url, outputDir, progressCallback);
@@ -351,4 +438,4 @@ async function cleanup(outputDir) {
   }
 }
 
-module.exports = { downloadMedia, cleanup };
+module.exports = { downloadMedia, cleanup, NonRetryableError };

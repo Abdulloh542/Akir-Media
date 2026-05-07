@@ -99,7 +99,10 @@ async function handleMessage(bot, msg) {
 
   // Boshqa barcha platformalar → to'g'ridan-to'g'ri yuklab olish
   const urlId = saveUrl(url);
-  await addToQueue({ chatId, userId, url, type: 'video', urlId });
+  // Instagram /p/ carousel posts → images; all others → video
+  const isImagePost = /instagram\.com\/(?:[\w.]+\/)?p\/[\w-]+/i.test(url) ||
+                      platform.key === 'pinterest';
+  await addToQueue({ chatId, userId, url, type: isImagePost ? 'image' : 'video', urlId });
   // Xabar yuborilmaydi — queue.js o'zi "Yuklab olinmoqda" deydi
 }
 
