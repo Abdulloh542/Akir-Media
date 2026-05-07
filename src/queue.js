@@ -34,7 +34,7 @@ function initQueue(bot) {
     try { trackDownload(job.data.chatId, detectPlatform(job.data.url).name, job.data.type, 'failed'); } catch {}
   });
 
-  downloadQueue.on('error', (err) => logger.error('Queue error:', err.message));
+  downloadQueue.on('error', (err) => logger.error('Queue error:', err.message || err.toString()));
   downloadQueue.on('stalled', (job) => logger.warn(`Job ${job.id} stalled`));
 
   logger.info(`Queue: ${concurrency} parallel worker`);
