@@ -1,0 +1,31 @@
+{
+  "name": "akir-media-bot",
+  "version": "3.0.0",
+  "description": "Akir Media Telegram Bot — universal media downloader",
+  "main": "src/bot.js",
+  "scripts": {
+    "start": "node --no-deprecation src/bot.js",
+    "dev": "nodemon --exec 'node --no-deprecation' src/bot.js",
+    "pm2": "pm2 start src/bot.js --name akir-media-bot --max-memory-restart 500M"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "bcryptjs": "^2.4.3",
+    "bull": "^4.12.0",
+    "dotenv": "^16.3.0",
+    "express": "^4.18.2",
+    "express-session": "^1.17.3",
+    "fs-extra": "^11.2.0",
+    "lowdb": "^1.0.0",
+    "multer": "^1.4.5-lts.1",
+    "node-telegram-bot-api": "^0.66.0",
+    "uuid": "^9.0.0",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

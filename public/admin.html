@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Panel — Akir Media</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0d0d1a;--bg2:#13132a;--bg3:#1a1a35;--primary:#6c63ff;--accent:#a78bfa;--text:#e8e8ff;--muted:#9090b0;--success:#34d399;--danger:#f87171;--warn:#fbbf24}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh}
+
+/* SIDEBAR */
+.sidebar{width:240px;min-height:100vh;background:var(--bg2);border-right:1px solid rgba(108,99,255,.1);padding:24px 0;display:flex;flex-direction:column;position:fixed;top:0;left:0;z-index:10}
+.sidebar-logo{padding:0 24px 24px;font-size:1.3rem;font-weight:800;background:linear-gradient(135deg,#6c63ff,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;border-bottom:1px solid rgba(108,99,255,.1);margin-bottom:16px}
+.nav-item{display:flex;align-items:center;gap:12px;padding:12px 24px;color:var(--muted);cursor:pointer;transition:.2s;font-size:.95rem;border-left:3px solid transparent}
+.nav-item:hover{color:var(--text);background:rgba(108,99,255,.08)}
+.nav-item.active{color:var(--text);border-left-color:var(--primary);background:rgba(108,99,255,.1)}
+.nav-item .icon{font-size:1.1rem;width:22px;text-align:center}
+.sidebar-bottom{margin-top:auto;padding:16px 24px}
+.logout-btn{width:100%;padding:10px;background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.2);border-radius:10px;color:var(--danger);cursor:pointer;font-size:.9rem;transition:.2s}
+.logout-btn:hover{background:rgba(248,113,113,.2)}
+
+/* MAIN */
+.main{margin-left:240px;flex:1;padding:32px;min-height:100vh}
+.page{display:none}
+.page.active{display:block}
+h1{font-size:1.6rem;font-weight:800;margin-bottom:8px}
+.page-desc{color:var(--muted);font-size:.9rem;margin-bottom:28px}
+
+/* STATS CARDS */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:20px;margin-bottom:32px}
+.stat-card{background:var(--bg2);border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:24px;transition:.3s}
+.stat-card:hover{border-color:rgba(108,99,255,.3);transform:translateY(-2px)}
+.stat-label{font-size:.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
+.stat-value{font-size:2rem;font-weight:800;background:linear-gradient(135deg,#6c63ff,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.stat-sub{font-size:.8rem;color:var(--muted);margin-top:4px}
+
+/* TABLE */
+.card{background:var(--bg2);border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:24px;margin-bottom:24px}
+.card-title{font-size:1rem;font-weight:700;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between}
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+th{text-align:left;padding:10px 12px;color:var(--muted);font-weight:600;border-bottom:1px solid rgba(255,255,255,.06);font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}
+td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.04);color:var(--text)}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(108,99,255,.04)}
+.badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;font-size:.75rem;font-weight:600}
+.badge-success{background:rgba(52,211,153,.15);color:var(--success)}
+.badge-danger{background:rgba(248,113,113,.15);color:var(--danger)}
+
+/* FORMS */
+.form-group{margin-bottom:20px}
+.form-group label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:8px;font-weight:500}
+input[type=text],input[type=url],textarea,select{width:100%;padding:12px 16px;background:var(--bg3);border:1px solid rgba(108,99,255,.2);border-radius:12px;color:var(--text);font-size:.95rem;outline:none;transition:.3s;font-family:inherit}
+input[type=text]:focus,input[type=url]:focus,textarea:focus{border-color:var(--primary);background:rgba(108,99,255,.05)}
+textarea{min-height:140px;resize:vertical}
+.file-upload{border:2px dashed rgba(108,99,255,.3);border-radius:12px;padding:24px;text-align:center;cursor:pointer;transition:.3s;background:var(--bg3)}
+.file-upload:hover{border-color:var(--primary);background:rgba(108,99,255,.05)}
+.file-upload input{display:none}
+#img-preview{max-width:100%;max-height:200px;border-radius:10px;margin-top:12px;display:none}
+.btn{padding:12px 28px;border-radius:12px;border:none;cursor:pointer;font-size:.95rem;font-weight:600;transition:.3s;display:inline-flex;align-items:center;gap:8px}
+.btn-primary{background:linear-gradient(135deg,var(--primary),var(--accent));color:#fff}
+.btn-primary:hover{opacity:.9;transform:translateY(-1px)}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.btn-danger{background:rgba(248,113,113,.15);color:var(--danger);border:1px solid rgba(248,113,113,.2)}
+.btn-danger:hover{background:rgba(248,113,113,.25)}
+.alert{padding:14px 18px;border-radius:12px;font-size:.9rem;margin-bottom:20px;display:none}
+.alert-success{background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.3);color:var(--success)}
+.alert-error{background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);color:var(--danger)}
+.alert-info{background:rgba(108,99,255,.1);border:1px solid rgba(108,99,255,.3);color:var(--accent)}
+
+/* PLATFORM CHART */
+.platform-bar{margin-bottom:12px}
+.platform-bar-label{display:flex;justify-content:space-between;font-size:.85rem;margin-bottom:6px}
+.bar-track{background:var(--bg3);border-radius:6px;height:8px;overflow:hidden}
+.bar-fill{height:100%;background:linear-gradient(135deg,var(--primary),var(--accent));border-radius:6px;transition:.8s}
+
+/* LOADING */
+.spinner{width:32px;height:32px;border:3px solid rgba(108,99,255,.2);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite;margin:40px auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+@media(max-width:900px){
+  .sidebar{width:60px}
+  .sidebar-logo,.nav-item span,.sidebar-bottom{display:none}
+  .main{margin-left:60px;padding:20px}
+}
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">⚡ Akir Media</div>
+  <div class="nav-item active" onclick="showPage('dashboard')"><span class="icon">📊</span><span>Dashboard</span></div>
+  <div class="nav-item" onclick="showPage('broadcast')"><span class="icon">📢</span><span>E'lon yuborish</span></div>
+  <div class="nav-item" onclick="showPage('history')"><span class="icon">📋</span><span>E'lonlar tarixi</span></div>
+  <div class="nav-item" onclick="showPage('users')"><span class="icon">👥</span><span>Foydalanuvchilar</span></div>
+  <div class="sidebar-bottom">
+    <button class="logout-btn" onclick="logout()">🚪 Chiqish</button>
+  </div>
+</aside>
+
+<main class="main">
+
+  <!-- DASHBOARD -->
+  <div class="page active" id="page-dashboard">
+    <h1>Dashboard</h1>
+    <p class="page-desc">Bot statistikasi va umumiy ko'rinish</p>
+    <div class="stats-grid" id="stats-grid"><div class="spinner"></div></div>
+    <div class="card" id="platform-card" style="display:none">
+      <div class="card-title">📈 Platformalar bo'yicha yuklab olishlar</div>
+      <div id="platform-chart"></div>
+    </div>
+    <div class="card" id="recent-broadcasts-card" style="display:none">
+      <div class="card-title">📢 Oxirgi e'lonlar</div>
+      <table><thead><tr><th>Sarlavha</th><th>Yuborildi</th><th>Sana</th></tr></thead>
+      <tbody id="recent-broadcasts-body"></tbody></table>
+    </div>
+  </div>
+
+  <!-- BROADCAST -->
+  <div class="page" id="page-broadcast">
+    <h1>E'lon yuborish</h1>
+    <p class="page-desc">Barcha foydalanuvchilarga xabar, rasm yoki havola yuboring</p>
+    <div class="alert alert-success" id="bc-success"></div>
+    <div class="alert alert-error" id="bc-error"></div>
+    <div class="alert alert-info" id="bc-info"></div>
+    <div class="card">
+      <form id="broadcast-form">
+        <div class="form-group">
+          <label>Sarlavha (ixtiyoriy)</label>
+          <input type="text" name="title" placeholder="E'lon sarlavhasi...">
+        </div>
+        <div class="form-group">
+          <label>Xabar matni <span style="color:var(--danger)">*</span></label>
+          <textarea name="message" placeholder="HTML teglari ishlaydi: &lt;b&gt;qalin&lt;/b&gt;, &lt;i&gt;kursiv&lt;/i&gt;, &lt;a href='...'&gt;havola&lt;/a&gt;" required></textarea>
+          <div style="font-size:.78rem;color:var(--muted);margin-top:6px">💡 HTML qo'llab-quvvatlanadi: &lt;b&gt;, &lt;i&gt;, &lt;a href=""&gt;, &lt;code&gt;, &lt;pre&gt;</div>
+        </div>
+        <div class="form-group">
+          <label>Rasm (ixtiyoriy)</label>
+          <div class="file-upload" onclick="document.getElementById('img-input').click()">
+            <input type="file" id="img-input" name="image" accept="image/*" onchange="previewImg(this)">
+            <div id="upload-text">🖼 Rasm tanlash uchun bosing (maks 10MB)</div>
+            <img id="img-preview">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Tugma URL manzili (ixtiyoriy)</label>
+          <input type="url" name="link_url" id="link_url" placeholder="https://t.me/AkirMediabot">
+        </div>
+        <div class="form-group">
+          <label>Tugma matni</label>
+          <input type="text" name="button_text" placeholder="🔗 Batafsil ko'rish">
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <button type="button" class="btn btn-primary" onclick="previewBroadcast()">👁 Ko'rib chiqish</button>
+          <button type="submit" class="btn btn-primary" id="send-btn">📢 Hammaga yuborish</button>
+        </div>
+      </form>
+    </div>
+    <div class="card" id="preview-card" style="display:none">
+      <div class="card-title">👁 Ko'rib chiqish</div>
+      <div id="preview-content" style="background:var(--bg3);padding:20px;border-radius:12px;line-height:1.7"></div>
+    </div>
+  </div>
+
+  <!-- HISTORY -->
+  <div class="page" id="page-history">
+    <h1>E'lonlar tarixi</h1>
+    <p class="page-desc">Yuborilgan barcha e'lonlar ro'yxati</p>
+    <div class="card">
+      <div id="history-loading" class="spinner"></div>
+      <table id="history-table" style="display:none">
+        <thead><tr><th>#</th><th>Sarlavha</th><th>Xabar</th><th>Yuborildi</th><th>Muvaffaqiyat</th><th>Xato</th><th>Sana</th></tr></thead>
+        <tbody id="history-body"></tbody>
+      </table>
+      <div id="history-empty" style="display:none;text-align:center;color:var(--muted);padding:40px">Hali e'lon yuborilmagan</div>
+    </div>
+  </div>
+
+  <!-- USERS -->
+  <div class="page" id="page-users">
+    <h1>Foydalanuvchilar</h1>
+    <p class="page-desc">Botdan foydalanuvchilar ro'yxati</p>
+    <div class="stats-grid" id="user-stats" style="margin-bottom:24px"></div>
+    <div class="card">
+      <div id="users-loading" class="spinner"></div>
+      <table id="users-table" style="display:none">
+        <thead><tr><th>Chat ID</th><th>Ism</th><th>Username</th><th>Yuklab olishlar</th><th>Oxirgi faollik</th></tr></thead>
+        <tbody id="users-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// Auth tekshirish
+fetch('/api/auth-check').then(r=>r.json()).then(d=>{
+  if (!d.authenticated) window.location.href = '/login.html';
+  else loadDashboard();
+});
+
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  event.currentTarget.classList.add('active');
+  if (name==='history') loadHistory();
+  if (name==='users') loadUsers();
+}
+
+function logout() {
+  fetch('/api/logout',{method:'POST'}).then(()=>window.location.href='/login.html');
+}
+
+// ---- DASHBOARD ----
+async function loadDashboard() {
+  try {
+    const r = await fetch('/api/admin/stats');
+    const d = await r.json();
+    renderStats(d);
+  } catch(e) {
+    document.getElementById('stats-grid').innerHTML = '<p style="color:var(--danger)">Ma\'lumot yuklanmadi</p>';
+  }
+}
+
+function renderStats(d) {
+  const {users, downloads, broadcasts} = d;
+  const grid = document.getElementById('stats-grid');
+  grid.innerHTML = `
+    <div class="stat-card"><div class="stat-label">Jami foydalanuvchilar</div><div class="stat-value">${users.total.toLocaleString()}</div><div class="stat-sub">+${users.today} bugun</div></div>
+    <div class="stat-card"><div class="stat-label">Faol (7 kun)</div><div class="stat-value">${users.active7.toLocaleString()}</div><div class="stat-sub">so'nggi hafta</div></div>
+    <div class="stat-card"><div class="stat-label">Jami yuklab olishlar</div><div class="stat-value">${downloads.total.toLocaleString()}</div><div class="stat-sub">+${downloads.today} bugun</div></div>
+    <div class="stat-card"><div class="stat-label">Muvaffaqiyatli</div><div class="stat-value">${downloads.success.toLocaleString()}</div><div class="stat-sub">jami ${downloads.total > 0 ? Math.round(downloads.success/downloads.total*100) : 0}%</div></div>
+  `;
+
+  if (downloads.byPlatform && downloads.byPlatform.length > 0) {
+    const max = downloads.byPlatform[0].count;
+    document.getElementById('platform-card').style.display='block';
+    document.getElementById('platform-chart').innerHTML = downloads.byPlatform.map(p=>`
+      <div class="platform-bar">
+        <div class="platform-bar-label"><span>${p.platform||'Noma\'lum'}</span><span>${p.count}</span></div>
+        <div class="bar-track"><div class="bar-fill" style="width:${Math.round(p.count/max*100)}%"></div></div>
+      </div>
+    `).join('');
+  }
+
+  if (broadcasts && broadcasts.length > 0) {
+    document.getElementById('recent-broadcasts-card').style.display='block';
+    document.getElementById('recent-broadcasts-body').innerHTML = broadcasts.map(b=>`
+      <tr><td>${b.title||'(sarlavsiz)'}</td><td><span class="badge badge-success">${b.recipients}</span></td><td>${formatDate(b.sent_at)}</td></tr>
+    `).join('');
+  }
+}
+
+// ---- BROADCAST ----
+function previewImg(input) {
+  const preview = document.getElementById('img-preview');
+  const text = document.getElementById('upload-text');
+  if (input.files && input.files[0]) {
+    const reader = new FileReader();
+    reader.onload = e => { preview.src=e.target.result; preview.style.display='block'; text.textContent=input.files[0].name; };
+    reader.readAsDataURL(input.files[0]);
+  }
+}
+
+function previewBroadcast() {
+  const msg = document.querySelector('[name=message]').value;
+  const linkUrl = document.getElementById('link_url').value;
+  const btnText = document.querySelector('[name=button_text]').value;
+  const card = document.getElementById('preview-card');
+  const content = document.getElementById('preview-content');
+  if (!msg.trim()) return;
+  card.style.display='block';
+  content.innerHTML = msg + (linkUrl ? `<br><br><a href="${linkUrl}" style="color:var(--accent);background:rgba(108,99,255,.2);padding:8px 16px;border-radius:10px;display:inline-block;margin-top:8px">${btnText||'🔗 Batafsil'}</a>` : '');
+}
+
+document.getElementById('broadcast-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = document.getElementById('send-btn');
+  const success = document.getElementById('bc-success');
+  const error = document.getElementById('bc-error');
+  const info = document.getElementById('bc-info');
+  [success,error,info].forEach(el=>el.style.display='none');
+
+  if (!confirm('Barcha foydalanuvchilarga yuborishni tasdiqlaysizmi?')) return;
+  btn.disabled=true; btn.textContent='Yuborilmoqda...';
+
+  const formData = new FormData(e.target);
+  try {
+    const r = await fetch('/api/admin/broadcast', { method:'POST', body: formData });
+    const d = await r.json();
+    if (r.ok) {
+      info.textContent = `✅ ${d.message}`; info.style.display='block';
+      e.target.reset();
+      document.getElementById('img-preview').style.display='none';
+      document.getElementById('upload-text').textContent='🖼 Rasm tanlash uchun bosing (maks 10MB)';
+      document.getElementById('preview-card').style.display='none';
+    } else { error.textContent='❌ '+d.error; error.style.display='block'; }
+  } catch { error.textContent='❌ Server xatosi'; error.style.display='block'; }
+  btn.disabled=false; btn.textContent='📢 Hammaga yuborish';
+});
+
+// ---- HISTORY ----
+async function loadHistory() {
+  document.getElementById('history-loading').style.display='block';
+  document.getElementById('history-table').style.display='none';
+  document.getElementById('history-empty').style.display='none';
+  try {
+    const r = await fetch('/api/admin/broadcasts');
+    const list = await r.json();
+    document.getElementById('history-loading').style.display='none';
+    if (!list.length) { document.getElementById('history-empty').style.display='block'; return; }
+    document.getElementById('history-table').style.display='table';
+    document.getElementById('history-body').innerHTML = list.map(b=>`
+      <tr>
+        <td>${b.id}</td>
+        <td>${b.title||'—'}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${b.message}">${b.message.substring(0,60)}${b.message.length>60?'...':''}</td>
+        <td><span class="badge badge-success">${b.recipients}</span></td>
+        <td><span class="badge badge-success">${b.recipients}</span></td>
+        <td><span class="badge badge-danger">${b.failed}</span></td>
+        <td>${formatDate(b.sent_at)}</td>
+      </tr>
+    `).join('');
+  } catch { document.getElementById('history-loading').style.display='none'; }
+}
+
+// ---- USERS ----
+async function loadUsers() {
+  document.getElementById('users-loading').style.display='block';
+  document.getElementById('users-table').style.display='none';
+  try {
+    const r = await fetch('/api/admin/users');
+    const d = await r.json();
+    document.getElementById('user-stats').innerHTML = `
+      <div class="stat-card"><div class="stat-label">Jami</div><div class="stat-value">${d.total}</div></div>
+    `;
+    document.getElementById('users-loading').style.display='none';
+    document.getElementById('users-table').style.display='table';
+    document.getElementById('users-body').innerHTML = d.users.map(u=>`
+      <tr>
+        <td><code style="color:var(--accent)">${u.chat_id}</code></td>
+        <td>${u.first_name||'—'} ${u.last_name||''}</td>
+        <td>${u.username?'@'+u.username:'—'}</td>
+        <td>${u.downloads}</td>
+        <td>${formatDate(u.last_seen)}</td>
+      </tr>
+    `).join('');
+  } catch(e) { document.getElementById('users-loading').style.display='none'; }
+}
+
+function formatDate(unix) {
+  if (!unix) return '—';
+  return new Date(unix*1000).toLocaleString('uz-UZ',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+}
+</script>
+</body>
+</html>
