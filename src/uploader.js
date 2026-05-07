@@ -30,7 +30,7 @@ async function sendVideo(bot, chatId, filePath) {
 
   let fileToSend = filePath;
   const stat = await fs.stat(filePath);
-  logger.info(`Sending video: ${path.basename(filePath)} (${formatBytes(stat.size)})`);
+  logger.info(`sendVideo: ${path.basename(filePath)} ext=${path.extname(filePath)} size=${formatBytes(stat.size)}`);
 
   if (stat.size > TELEGRAM_LIMIT) {
     logger.info(`Fayl ${formatBytes(stat.size)} — Telegram limiti oshdi, kompressiya boshlandi...`);
@@ -95,14 +95,20 @@ async function sendVideo(bot, chatId, filePath) {
   }
 
   // Telegramga yuklash — timeout bilan
-  await sendWithTimeout(
-    bot.sendVideo(chatId, fs.createReadStream(fileToSend), {
-      supports_streaming: true,
-      caption: '✅ @AkirMediaBot',
-    }),
-    UPLOAD_TIMEOUT_MS,
-    'Video yuklash timeout'
-  );
+  logger.info(`sendVideo: Telegram API ga yuborilmoqda: ${path.basename(fileToSend)} (${formatBytes((await fs.stat(fileToSend)).size)})`);
+  try {
+    await sendWithTimeout(
+      bot.sendVideo(chatId, fs.createReadStream(fileToSend), {
+        supports_streaming: true,
+        caption: '✅ @AkirMediaBot',
+      }),
+      UPLOAD_TIMEOUT_MS,
+      'Video yuklash timeout'
+    );
+  } catch (e) {
+    logger.error(`sendVideo Telegram xato: ${e.message || e}`);
+    throw e;
+  }
 
   // Kompressiya qilingan faylni o'chirish
   if (fileToSend !== filePath) await fs.remove(fileToSend).catch(() => {});
