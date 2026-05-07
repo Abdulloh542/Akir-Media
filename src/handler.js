@@ -21,7 +21,7 @@ Istalgan platformadan video yoki rasm yuklab bering.
 
 🔴 YouTube · 📸 Instagram · 🎵 TikTok
 📘 Facebook · 🐦 Twitter/X · 📌 Pinterest
-🎞 Vimeo · 🟠 Reddit · 🌐 +1000 sayt
+🎞 Vimeo · 🟠 Reddit
 
 <b>Ishlatish:</b> Havolani yuboring, qolganini men qilaman.`;
 
@@ -34,7 +34,7 @@ const HELP =
 • Boshqalar → to'g'ridan-to'g'ri yuklanadi
 
 <b>Qo'llab-quvvatlanadi:</b>
-YouTube, Instagram, TikTok, Facebook, Twitter/X, Pinterest, Vimeo, Reddit va 1000+ sayt
+YouTube, Instagram, TikTok, Facebook, Twitter/X, Pinterest, Vimeo, Reddit
 
 <b>Muammo bo'lsa:</b>
 👤 <a href="https://t.me/me_abdulloh_me">@me_abdulloh_me</a> ga murojat qiling`;

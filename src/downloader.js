@@ -587,25 +587,37 @@ async function getMediaFiles(dir) {
 function parseYtDlpError(stderr) {
   if (!stderr) return 'Noma\'lum xato yuz berdi';
 
-  if (stderr.includes('No video formats found')) return 'Bu havolada yuklab olinadigan video topilmadi';
-  if (stderr.includes('Video unavailable')) return 'Video mavjud emas yoki o\'chirilgan';
-  if (stderr.includes('Private video')) return 'Bu private video, yuklab bo\'lmaydi';
-  if (stderr.includes('Sign in') || stderr.includes('login required') || stderr.includes('Login required')) return 'Bu kontent login talab qiladi';
-  if (stderr.includes('Requested content is not available') || stderr.includes('rate-limit reached')) return 'Bu kontent mavjud emas yoki cheklov o\'rnatilgan';
-  if (stderr.includes('age-restricted')) return 'Bu video yosh chekloviga ega';
-  if (stderr.includes('copyright')) return 'Bu video mualliflik huquqi bilan himoyalangan';
-  if (stderr.includes('geo') || stderr.includes('not available in your country')) return 'Bu kontent sizning mamlakatda mavjud emas';
-  if (stderr.includes('not found') || stderr.includes('404')) return 'Havola topilmadi (404)';
-  if (stderr.includes('rate limit') || stderr.includes('429')) return 'So\'rovlar chegarasi oshdi. Biroz kutib qayta urinib ko\'ring';
-  if (stderr.includes('network') || stderr.includes('connection')) return 'Tarmoq xatosi. Qayta urinib ko\'ring';
+  const s = stderr;
+  if (s.includes('No video formats found')) return 'Bu havolada media topilmadi';
+  if (s.includes('Video unavailable')) return 'Video mavjud emas yoki o\'chirilgan';
+  if (s.includes('Private video')) return 'Bu private video, yuklab bo\'lmaydi';
+  if (s.includes('Requested content is not available') ||
+      s.includes('rate-limit reached') ||
+      s.includes('Use --cookies') ||
+      s.includes('login required') ||
+      s.includes('Login required') ||
+      s.includes('Sign in to confirm') ||
+      s.includes('Please sign in')) return 'Bu kontent uchun login talab qilinadi';
+  if (s.includes('age-restricted')) return 'Bu video yosh chekloviga ega';
+  if (s.includes('copyright')) return 'Bu video mualliflik huquqi bilan himoyalangan';
+  if (s.includes('geo') || s.includes('not available in your country')) return 'Bu kontent sizning mamlakatda mavjud emas';
+  if (s.includes('not found') || s.includes('404')) return 'Havola topilmadi (404)';
+  if (s.includes('rate limit') || s.includes('429')) return 'So\'rovlar chegarasi oshdi, biroz kutib qayta urinib ko\'ring';
+  if (s.includes('network') || s.includes('connection')) return 'Tarmoq xatosi, qayta urinib ko\'ring';
+  if (s.includes('Unsupported URL')) return 'Bu havola qo\'llab-quvvatlanmaydi';
 
-  const errorLine = stderr.split('\n').find(l => l.includes('ERROR:'));
+  const errorLine = s.split('\n').find(l => l.includes('ERROR:'));
   if (errorLine) {
-    const msg = errorLine.replace(/ERROR:\s*/, '').trim();
-    return msg.replace(/;\s*please report.*$/i, '').trim() || 'Yuklab olishda xato';
+    let msg = errorLine.replace(/ERROR:\s*/i, '').trim();
+    // Strip yt-dlp-specific advice and GitHub URLs
+    msg = msg.replace(/\.\s*(Use --cookies.*|See https?:\/\/.*|Please report.*)$/i, '').trim();
+    msg = msg.replace(/;\s*please report.*$/i, '').trim();
+    // Strip extractor prefix like "[Instagram] abc123: "
+    msg = msg.replace(/^\[[^\]]+\]\s+[\w-]+:\s*/i, '').trim();
+    return msg || 'Yuklab olishda xato';
   }
 
-  return 'Yuklab olishda xato. Havola to\'g\'ri ekanligini tekshiring';
+  return 'Yuklab olishda xato';
 }
 
 async function downloadMedia(url, type = 'video', progressCallback = null) {
@@ -616,12 +628,12 @@ async function downloadMedia(url, type = 'video', progressCallback = null) {
   try {
     let result;
 
-    // Instagram /p/ URLs are carousel posts — always use gallery-dl first
-    const isInstagramPost = /instagram\.com\/(?:[\w.]+\/)?p\/[\w-]+/i.test(url);
+    // All Instagram URLs go through downloadImages (handles reels + carousels + posts)
+    const isInstagram = /instagram\.com/i.test(url);
 
     if (type === 'audio') {
       result = await downloadAudio(url, outputDir, progressCallback);
-    } else if (type === 'image' || isInstagramPost) {
+    } else if (type === 'image' || isInstagram) {
       result = await downloadImages(url, outputDir, progressCallback);
     } else {
       result = await downloadVideo(url, outputDir, progressCallback);
